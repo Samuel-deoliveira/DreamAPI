@@ -17,7 +17,7 @@ public final class AdminBroadcastCmd {
 
   @CommandDescription("Broadcast cmd")
   @CommandMethod("broadcast <msg>")
-  @CommandPermission("dreamapi.admin.broadcast")
+  @CommandPermission("dreamapi.cmd.broadcast")
   private void broadcast(
     final @NotNull CommandSender sender,
     @Argument("msg") @Greedy String msg

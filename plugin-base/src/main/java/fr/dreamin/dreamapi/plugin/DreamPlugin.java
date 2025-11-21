@@ -14,6 +14,7 @@ import fr.dreamin.dreamapi.core.cuboid.core.CuboidServiceImpl;
 import fr.dreamin.dreamapi.core.glowing.GlowingServiceImpl;
 import fr.dreamin.dreamapi.core.inventory.service.InventoryServiceImpl;
 import fr.dreamin.dreamapi.core.item.service.ItemServiceImpl;
+import fr.dreamin.dreamapi.core.logger.DebugServiceImpl;
 import fr.dreamin.dreamapi.core.luckperms.LuckPermsServiceImpl;
 import fr.dreamin.dreamapi.core.packUtils.GlobalTexturesServiceImpl;
 import fr.dreamin.dreamapi.core.service.DreamServiceManager;
@@ -22,6 +23,7 @@ import fr.dreamin.dreamapi.core.time.day.impl.DayCycleServiceImpl;
 import fr.dreamin.dreamapi.core.world.impl.WorldServiceImpl;
 import fr.dreamin.dreamapi.plugin.cmd.admin.broadcast.AdminBroadcastCmd;
 import fr.dreamin.dreamapi.plugin.cmd.admin.broadcast.BroadcastContext;
+import fr.dreamin.dreamapi.plugin.cmd.admin.debug.DebugCmd;
 import lombok.Getter;
 import lombok.Setter;
 import net.luckperms.api.LuckPerms;
@@ -219,6 +221,7 @@ public abstract class DreamPlugin extends JavaPlugin {
   private void loadServices() {
     this.serviceManager.loadAllServices();
 
+    this.serviceManager.loadServiceFromClass(DebugServiceImpl.class);
     this.serviceManager.loadServiceFromClass(AnimationServiceImpl.class);
     this.serviceManager.loadServiceFromClass(WorldServiceImpl.class);
     this.serviceManager.loadServiceFromClass(DayCycleServiceImpl.class);
@@ -263,6 +266,8 @@ public abstract class DreamPlugin extends JavaPlugin {
 
     if (this.broadcastCmd)
       this.annotationParser.parse(new AdminBroadcastCmd(this));
+
+    this.annotationParser.parse(new DebugCmd());
 
   }
 

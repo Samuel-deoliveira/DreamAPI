@@ -1,7 +1,13 @@
 package fr.dreamin.dreamapi.core.service;
 
+import fr.dreamin.dreamapi.api.DreamAPI;
 import fr.dreamin.dreamapi.api.services.DreamAutoService;
 import fr.dreamin.dreamapi.api.services.DreamService;
+import fr.dreamin.dreamapi.api.services.Inject;
+import fr.dreamin.dreamapi.core.DreamContext;
+import fr.dreamin.dreamapi.core.logger.DreamLoggerImpl;
+import logger.DebugService;
+import logger.DreamLogger;
 import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -11,6 +17,7 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -19,17 +26,17 @@ import java.util.stream.Collectors;
  * <p>
  * This loader supports:
  * <ul>
- *     <li>Topological loading of services according to their dependencies.</li>
- *     <li>Lifecycle hooks via {@link DreamService}.</li>
- *     <li>Service priority ordering.</li>
- *     <li>Proper status tracking (LOADING, LOADED, FAILED, etc.).</li>
+ *   <li>Topological sorting of service load order (dependencies).</li>
+ *   <li>Constructor injection via {@link Inject}.</li>
+ *   <li>Fallback constructor logic.</li>
+ *   <li>Lifecycle management (onLoad / onReload / onClose).</li>
  * </ul>
  */
 public final class DreamServiceManager implements Listener {
 
   private final @NotNull Plugin plugin;
 
-  // Storage for loaded services
+  /** Stores loaded DreamService instances by implementation class */
   private final Map<Class<?>, DreamService> loadedServices = new HashMap<>();
 
   public DreamServiceManager(final @NotNull Plugin plugin) {
@@ -48,132 +55,91 @@ public final class DreamServiceManager implements Listener {
    */
   public void loadAllServices() {
     final var log = this.plugin.getLogger();
-    final long startTime = System.currentTimeMillis();
+    final long start = System.currentTimeMillis();
 
     final var basePackage = this.plugin.getClass().getPackageName();
-    log.info("[DreaminService] Starting service scan in: " + basePackage);
+    log.info(String.format("[DreamService] Scanning package: %s", basePackage));
 
     // Step 1: Retrieve all annotated classes
-    Set<Class<?>> annotatedClasses;
+    Set<Class<?>> annotated;
     try {
-      annotatedClasses = ClassScanner.getClasses(this.plugin, basePackage, true).stream()
-      .filter(clazz -> clazz.isAnnotationPresent(DreamAutoService.class))
+      annotated = ClassScanner.getClasses(this.plugin, basePackage, true).stream()
+      .filter(c -> c.isAnnotationPresent(DreamAutoService.class))
       .collect(Collectors.toSet());
     } catch (IOException | ClassNotFoundException e) {
-      log.severe("[DreaminService] Failed to scan classes: " + e.getMessage());
-      e.printStackTrace();
+      log.severe(String.format("[DreamService] Failed to scan classes: %s", e.getMessage()));
       return;
     }
 
     // Step 2: Build dependency graph
-    Map<Class<?>, List<Class<?>>> dependencyGraph = new HashMap<>();
-    for (Class<?> clazz : annotatedClasses) {
+    Map<Class<?>, List<Class<?>>> graph = new HashMap<>();
+    for (Class<?> clazz : annotated) {
       DreamAutoService annotation = clazz.getAnnotation(DreamAutoService.class);
-      dependencyGraph.put(clazz, Arrays.asList(annotation.dependencies()));
+      graph.put(clazz, Arrays.asList(annotation.dependencies()));
     }
 
     // Step 3: Compute load order via topological sort
     List<Class<?>> loadOrder;
     try {
-      loadOrder = topologicalSort(dependencyGraph);
+      loadOrder = topologicalSort(graph);
     } catch (IllegalStateException e) {
-      log.severe("[DreaminService] Circular dependency detected: " + e.getMessage());
+      log.severe(String.format("[DreamService] Circular dependency detected: %s", e.getMessage()));
       return;
     }
 
-    int successCount = 0;
-    int failCount = 0;
+    int ok = 0;
+    int fail = 0;
 
     // Step 4: Instantiate and register services in the correct order
-    for (Class<?> clazz : loadOrder) {
-      DreamAutoService annotation = clazz.getAnnotation(DreamAutoService.class);
-      Class<?> serviceInterface = annotation.value();
-      var priority = annotation.priority();
-
+    for(Class<?> implClass : loadOrder) {
       try {
-        @SuppressWarnings("unchecked")
-        final var iface = (Class<Object>) serviceInterface;
+        final var auto = implClass.getAnnotation(DreamAutoService.class);
+        final var iface = (Class<Object>) auto.value();
+        final var priority = auto.priority();
 
-        final var constructor = Arrays.stream(clazz.getDeclaredConstructors())
-          .filter(c -> c.getParameterCount() == 1 && Plugin.class.isAssignableFrom(c.getParameterTypes()[0]))
-          .findFirst()
-          .orElse(clazz.getDeclaredConstructors()[0]);
+        final var ctor = resolveConstructor(implClass);
+        final var args = resolveConstructorArgs(ctor);
 
-        final var serviceImpl =
-          constructor.getParameterCount() == 1
-            ? constructor.newInstance(this.plugin)
-            : constructor.newInstance();
+        final var instance = ctor.newInstance(args);
 
-        if (!(serviceImpl instanceof DreamService ds)) {
-          log.warning(String.format("[DreamService] %s does not implement DreamService", clazz.getSimpleName()));
+        if (!(instance instanceof DreamService ds)) {
+          log.warning(String.format("[DreamService] %s does not implement DreamService", implClass.getSimpleName()));
           continue;
         }
 
-        // Mark as loading
         setStatus(ds, DreamService.ServiceStatus.LOADING);
         ds.onLoad(this.plugin);
         setStatus(ds, DreamService.ServiceStatus.LOADED);
 
-        // Register Bukkit service
-        Bukkit.getServicesManager().register(iface, serviceImpl, this.plugin, priority);
+        Bukkit.getServicesManager().register(iface, ds, this.plugin, priority);
 
-        // Store DreamService in local registry
-        loadedServices.put(clazz, ds);
-
-        successCount++;
-//        log.info(String.format("✅ Registered service: %s → %s (priority: %s)", clazz.getSimpleName(), serviceInterface.getSimpleName(), priority));
+        this.loadedServices.put(implClass, ds);
+        ok++;
       } catch (Exception e) {
-        failCount++;
-        log.severe(String.format("❌ Failed to register service %s: %s", clazz.getSimpleName(), e.getMessage()));
-        e.printStackTrace();
+        log.severe(String.format("Failed to load service %s: %s", implClass.getSimpleName(), e.getMessage()));
+        fail++;
       }
     }
 
-    final var duration = System.currentTimeMillis() - startTime;
-    log.info(String.format("[DreaminService] Scan completed: %d services loaded, %d failed (%.2fs)", successCount, failCount, duration / 1000.0));
+    final var end = System.currentTimeMillis();
+    log.info(String.format(
+      "[DreamService] Loaded %d services (%d failed) in %.2fs",
+      ok, fail, (end - start) / 1000.0
+    ));
   }
 
   /**
    * Reloads all currently registered services implementing {@link DreamService}.
    */
   public void reloadAllServices() {
-    for (Class<?> clazz : Bukkit.getServicesManager().getKnownServices()) {
-      for (RegisteredServiceProvider<?> provider : Bukkit.getServicesManager().getRegistrations(clazz)) {
-        final var service = provider.getProvider();
-        if (service instanceof DreamService ds) {
-          try {
-            setStatus(ds, DreamService.ServiceStatus.RELOADING);
-            ds.onReload();
-            setStatus(ds, DreamService.ServiceStatus.LOADED);
-          } catch (Exception e) {
-            setStatus(ds, DreamService.ServiceStatus.FAILED);
-            ds.onFailed();
-            this.plugin.getLogger().severe(String.format("[DreaminService] Failed to reload %s: %s", service.getClass().getSimpleName(), e.getMessage()));
-            e.printStackTrace();
-          }
-        }
-      }
-    }
+    this.loadedServices.values().forEach(this::reloadService);
   }
 
   /**
    * Closes all currently registered services implementing {@link DreamService}.
    */
   public void closeAllServices() {
-    for (Class<?> clazz : Bukkit.getServicesManager().getKnownServices()) {
-      for (RegisteredServiceProvider<?> provider : Bukkit.getServicesManager().getRegistrations(clazz)) {
-        final var service = provider.getProvider();
-        if (service instanceof DreamService ds) {
-          try {
-            setStatus(ds, DreamService.ServiceStatus.CLOSED);
-            ds.onClose();
-          } catch (Exception e) {
-            this.plugin.getLogger().severe(String.format("[DreaminService] Failed to close %s: %s", service.getClass().getSimpleName(), e.getMessage()));
-            e.printStackTrace();
-          }
-        }
-      }
-    }
+    this.loadedServices.values().forEach(this::closeService);
     this.loadedServices.clear();
   }
 
@@ -318,6 +284,105 @@ public final class DreamServiceManager implements Listener {
   // ###############################################################
   // ----------------------- PRIVATE METHODS -----------------------
   // ###############################################################
+
+  private Constructor<?> resolveConstructor(final @NotNull Class<?> clazz) {
+    final var constructors = clazz.getDeclaredConstructors();
+
+    // 1) If a constructor has @Inject → use it
+    for (var c : constructors) {
+      if (c.isAnnotationPresent(Inject.class)) {
+        c.setAccessible(true);
+        return c;
+      }
+    }
+
+    // 2) If the class has @Inject → use the best constructor
+    if (clazz.isAnnotationPresent(Inject.class)) {
+
+      // Choose the constructor with the most parameters
+      // (ideal for Lombok's @RequiredArgsConstructor)
+      var best = constructors[0];
+      for (var c : constructors) {
+        if (c.getParameterCount() > best.getParameterCount())
+          best = c;
+      }
+
+      best.setAccessible(true);
+      return best;
+    }
+
+    // 3) Fallback: constructor with only allowed params (Plugin, DreamService, DreamLogger)
+    for (final var c : constructors) {
+      var compatible = true;
+
+      for (final var param : c.getParameterTypes()) {
+        if (!Plugin.class.isAssignableFrom(param) &&
+          !param.equals(DreamLogger.class) &&
+          !DreamService.class.isAssignableFrom(param)) {
+          compatible = false;
+          break;
+        }
+      }
+
+      if (compatible) {
+        c.setAccessible(true);
+        return c;
+      }
+    }
+
+    // 4) Fallback: no-arg constructor
+    try {
+      Constructor<?> c = clazz.getDeclaredConstructor();
+      c.setAccessible(true);
+      return c;
+    } catch (Exception e) {
+      throw new RuntimeException("No suitable constructor found for " + clazz.getName());
+    }
+  }
+
+  private Object[] resolveConstructorArgs(final @NotNull Constructor<?> constructor) {
+    final var params = constructor.getParameterTypes();
+    final var args = new Object[params.length];
+
+    for (var i = 0; i < params.length; i++) {
+      final var param = params[i];
+
+      // Inject Plugin
+      if (Plugin.class.isAssignableFrom(param)) {
+        args[i] = this.plugin;
+        continue;
+      }
+
+      if (param == DreamLogger.class) {
+        args[i] = createLogger(constructor.getDeclaringClass());
+        continue;
+      }
+
+      // Inject DreamService
+      var resolved = false;
+      for (DreamService service : loadedServices.values()) {
+        if (param.isAssignableFrom(service.getClass())) {
+          args[i] = service;
+          resolved = true;
+          break;
+        }
+      }
+
+      if (!resolved) {
+        throw new RuntimeException(
+          String.format("Unable to resolve dependency: %s for constructor %s", param.getName(), constructor)
+        );
+      }
+    }
+
+    return args;
+  }
+
+  private DreamLogger createLogger(final @NotNull Class<?> serviceClass) {
+    final var debugService = DreamAPI.getAPI().getService(DebugService.class);
+    final var category = serviceClass.getSimpleName().replace("Service", "");
+    return new DreamLoggerImpl(this.plugin, category, debugService);
+  }
 
   /**
    * Topological sort to determine proper service load order based on dependencies.

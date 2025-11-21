@@ -12,6 +12,7 @@ import fr.dreamin.dreamapi.core.bukkit.module.BukkitVectorModule;
 import fr.dreamin.dreamapi.core.item.listener.PlayerItemListener;
 import fr.dreamin.dreamapi.core.particle.module.*;
 import fr.dreamin.dreamapi.core.time.module.TickTaskModule;
+import logger.DebugService;
 import org.bukkit.Bukkit;
 import org.bukkit.event.Event;
 import org.bukkit.plugin.Plugin;

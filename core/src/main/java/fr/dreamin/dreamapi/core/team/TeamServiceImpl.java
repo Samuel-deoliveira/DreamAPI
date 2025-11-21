@@ -16,7 +16,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 @DreamAutoService(value = TeamService.class)
-public class TeamServiceImpl implements TeamService, DreamService {
+public final class TeamServiceImpl implements TeamService, DreamService {
 
   private final @NotNull Scoreboard scoreboard;
 
