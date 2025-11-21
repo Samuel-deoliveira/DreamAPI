@@ -1,0 +1,2 @@
+rootProject.name = "DreamAPI"
+include("api", "core", "plugin-base", "example-plugin")

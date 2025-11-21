@@ -1,0 +1,50 @@
+plugins {
+  id 'java'
+  id 'com.github.johnrengelman.shadow' version '8.1.1'
+  id 'xyz.jpenilla.run-paper' version '2.3.1'
+}
+
+group = "fr.dreamin"
+version = "1.0.0"
+description = "Example plugin"
+
+repositories {
+  mavenCentral()
+  maven {url "https://repo.papermc.io/repository/maven-public/"}
+  maven {url "https://oss.sonatype.org/content/groups/public/"}
+  maven {url 'https://repo.extendedclip.com/releases/'}
+  maven { url 'https://repo.codemc.org/repository/maven-public/' }
+  maven {url 'https://jitpack.io' }
+}
+
+def cloudCommandFrameworkVersion = "1.8.4"
+
+dependencies {
+  compileOnly "io.papermc.paper:paper-api:1.21.10-R0.1-SNAPSHOT"
+
+  implementation project(":plugin-base")
+
+  // Cloud CommandFramework
+  implementation("cloud.commandframework:cloud-paper:$cloudCommandFrameworkVersion")
+  implementation("cloud.commandframework:cloud-annotations:$cloudCommandFrameworkVersion")
+
+  compileOnly "org.projectlombok:lombok:1.18.34"
+  annotationProcessor "org.projectlombok:lombok:1.18.34"
+}
+
+tasks {
+  shadowJar {
+    archiveFileName = "ExamplePlugin.jar"
+    manifest {
+      attributes["Main-Class"] = "fr.dreamin.example.ExamplePlugin"
+    }
+  }
+
+  runServer {
+    // Configure the Minecraft version for our task.
+    // This is the only required configuration besides applying the plugin.
+    // Your plugin's jar (or shadowJar if present) will be used automatically.
+    minecraftVersion("1.21.10")
+  }
+
+}

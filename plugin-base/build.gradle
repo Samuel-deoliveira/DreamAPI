@@ -1,0 +1,13 @@
+dependencies {
+  api project(":core")
+  compileOnly "io.papermc.paper:paper-api:1.21.10-R0.1-SNAPSHOT"
+
+
+  implementation("cloud.commandframework:cloud-paper:1.8.4")
+  implementation("cloud.commandframework:cloud-annotations:1.8.4")
+
+}
+
+base {
+  archivesName.set("dreaminapi-plugin-base")
+}

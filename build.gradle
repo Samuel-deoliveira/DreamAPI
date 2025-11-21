@@ -1,0 +1,68 @@
+plugins {
+  id 'java'
+  id 'maven-publish'
+  id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+java {
+  toolchain {
+    languageVersion = JavaLanguageVersion.of(21)
+  }
+}
+
+subprojects {
+  apply plugin: "java"
+  apply plugin: "maven-publish"
+  apply plugin: "com.github.johnrengelman.shadow"
+  apply plugin: "java-library"
+
+  group = "fr.dreamin"
+  version = "1.0.0"
+  description = "DreamAPI - API modulaire pour Paper 1.21.10"
+
+  repositories {
+    mavenCentral()
+    maven { url = "https://repo.papermc.io/repository/maven-public/" }
+    maven { url 'https://repo.xenondevs.xyz/releases' }
+    maven { url "https://ci.mg-dev.eu/plugin/repository/everything"}
+  }
+
+  dependencies {
+
+    compileOnly "org.projectlombok:lombok:1.18.34"
+    annotationProcessor "org.projectlombok:lombok:1.18.34"
+
+    compileOnly "org.jetbrains:annotations:24.1.0"
+
+    compileOnly("com.fasterxml.jackson.core:jackson-databind:2.19.1")
+
+    implementation("org.apache.httpcomponents.client5:httpclient5:5.3.1")
+
+    compileOnly 'com.bergerkiller.bukkit:BKCommonLib:1.21.8-v1-SNAPSHOT'
+
+    compileOnly("net.luckperms:api:5.4")
+
+    testCompileOnly "org.projectlombok:lombok:1.18.34"
+    testAnnotationProcessor "org.projectlombok:lombok:1.18.34"
+
+    testImplementation "org.junit.jupiter:junit-jupiter:5.10.0"
+  }
+
+  def targetJavaVersion = JavaVersion.VERSION_21
+  java {
+    sourceCompatibility = targetJavaVersion
+    targetCompatibility = targetJavaVersion
+    if (JavaVersion.current() < targetJavaVersion) {
+      toolchain.languageVersion.set(JavaLanguageVersion.of(targetJavaVersion.majorVersion))
+    }
+  }
+
+  tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+  }
+
+  test {
+    useJUnitPlatform()
+  }
+
+}
